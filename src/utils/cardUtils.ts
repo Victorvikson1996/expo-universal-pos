@@ -1,5 +1,6 @@
 import NfcManager, { NfcTech, TagEvent } from 'react-native-nfc-manager';
 import type { CardData } from '@/utils/types';
+import { initializeNfc, cleanupNfc } from '@/utils/nfcUtils';
 
 // Helper: Convert hex string to byte array
 const hexToBytes = (hex: string): number[] => {
@@ -46,12 +47,9 @@ const parseTLV = (data: string): { [key: string]: string } => {
 };
 
 class CardUtils {
-  // Card type detection based on BIN (Bank Identification Number)
+  // Card type detection based on BIN
   getCardType(cardNumber: string): string {
-    // Remove spaces and dashes
     const cleanCardNumber = cardNumber.replace(/[\s-]/g, '');
-
-    // Basic BIN detection logic
     if (/^4/.test(cleanCardNumber)) return 'Visa';
     if (/^5[1-5]/.test(cleanCardNumber)) return 'Mastercard';
     if (/^3[47]/.test(cleanCardNumber)) return 'American Express';
@@ -62,32 +60,25 @@ class CardUtils {
     if (/^36/.test(cleanCardNumber)) return 'Diners Club';
     if (/^3[89]/.test(cleanCardNumber)) return 'Diners Club';
     if (/^62/.test(cleanCardNumber)) return 'UnionPay';
-
     return 'Unknown';
   }
 
   // Validate card number using Luhn algorithm
   validateCardNumber(cardNumber: string): boolean {
     const cleanCardNumber = cardNumber.replace(/[\s-]/g, '');
-
     if (!/^\d+$/.test(cleanCardNumber)) return false;
 
     let sum = 0;
     let shouldDouble = false;
-
-    // Loop through values starting from the rightmost digit
     for (let i = cleanCardNumber.length - 1; i >= 0; i--) {
       let digit = Number.parseInt(cleanCardNumber.charAt(i));
-
       if (shouldDouble) {
         digit *= 2;
         if (digit > 9) digit -= 9;
       }
-
       sum += digit;
       shouldDouble = !shouldDouble;
     }
-
     return sum % 10 === 0;
   }
 
@@ -101,17 +92,15 @@ class CardUtils {
     const expYear = Number.parseInt('20' + year);
 
     const currentDate = new Date();
-    const currentMonth = currentDate.getMonth() + 1; // getMonth() is 0-indexed
+    const currentMonth = currentDate.getMonth() + 1;
     const currentYear = currentDate.getFullYear();
 
-    // Check if the card is expired
     if (
       expYear < currentYear ||
       (expYear === currentYear && expMonth < currentMonth)
     ) {
       return false;
     }
-
     return true;
   }
 
@@ -121,32 +110,21 @@ class CardUtils {
     const cardType = this.getCardType(cleanCardNumber);
 
     if (cardType === 'American Express') {
-      // Format: XXXX XXXXXX XXXXX
       return cleanCardNumber.replace(/(\d{4})(\d{6})(\d{5})/, '$1 $2 $3');
     } else {
-      // Format: XXXX XXXX XXXX XXXX
       return cleanCardNumber.replace(/(\d{4})(?=\d)/g, '$1 ');
     }
   }
 
-  // Read card with NFC
   async readCardWithNfc(): Promise<CardData> {
     try {
-      // Initialize NFC Manager
-      await NfcManager.start();
-
-      // Check NFC support and status
-      const isSupported = await NfcManager.isSupported();
-      if (!isSupported) {
-        throw new Error('NFC is not supported on this device');
+      // Initialize NFC
+      const nfcInitialized = await initializeNfc();
+      if (!nfcInitialized) {
+        throw new Error('NFC initialization failed');
       }
 
-      const isEnabled = await NfcManager.isEnabled();
-      if (!isEnabled) {
-        throw new Error('NFC is not enabled. Please enable NFC in settings.');
-      }
-
-      // Request ISO-DEP technology (for EMV cards and mobile wallets)
+      // Request ISO-DEP technology
       await NfcManager.requestTechnology(NfcTech.IsoDep);
 
       // Get the tag
@@ -155,7 +133,7 @@ class CardUtils {
         throw new Error('No NFC tag detected. Please tap a card or device.');
       }
 
-      // Select Proximity Payment System Environment (PPSE) for contactless payments
+      // Select PPSE
       const PPSE_AID = '325041592E5359532E4444463031'; // 2PAY.SYS.DDF01
       const selectPPSE = `00A40400${(PPSE_AID.length / 2)
         .toString(16)
@@ -165,14 +143,13 @@ class CardUtils {
       );
       const ppseResponseHex = bytesToHex(ppseResponse);
 
-      // Verify PPSE selection (status 9000)
       if (!ppseResponseHex.endsWith('9000')) {
         throw new Error(
           'Failed to select PPSE. Ensure the card or device supports contactless payments.'
         );
       }
 
-      // Parse PPSE response to find the Application Identifier (AID)
+      // Parse PPSE response for AID
       const tlvData = parseTLV(ppseResponseHex);
       const aidTag = '4F';
       let cardAID: string | null = null;
@@ -199,7 +176,7 @@ class CardUtils {
       };
       const cardType = knownAIDs[cardAID.substr(0, 10)] || 'Unknown';
 
-      // Select the card's payment application
+      // Select payment application
       const selectAID = `00A40400${(cardAID.length / 2)
         .toString(16)
         .padStart(2, '0')}${cardAID}`;
@@ -211,7 +188,7 @@ class CardUtils {
         throw new Error('Failed to select payment application.');
       }
 
-      // Get Processing Options to initiate transaction
+      // Get Processing Options
       const getProcessingOptions = '80A80000028300';
       const gpoResponse = await NfcManager.isoDepHandler.transceive(
         hexToBytes(getProcessingOptions)
@@ -221,22 +198,20 @@ class CardUtils {
         throw new Error('Failed to get processing options.');
       }
 
-      // Parse card data (PAN and expiry date)
+      // Parse card data
       let cardNumber = '';
       let expiryDate = '';
       const gpoTLV = parseTLV(gpoResponseHex);
 
-      // Check for Application File Locator (AFL) to read records
+      // Check AFL for records
       const aflTag = '94';
       if (gpoTLV[aflTag]) {
         const afl = gpoTLV[aflTag];
-        // Parse AFL to get SFI (Short File Identifier) and record numbers
         for (let i = 0; i < afl.length; i += 8) {
           const sfi = parseInt(afl.substr(i, 2), 16) >> 3;
           const startRecord = parseInt(afl.substr(i + 2, 2), 16);
           const endRecord = parseInt(afl.substr(i + 4, 2), 16);
 
-          // Read each record
           for (let rec = startRecord; rec <= endRecord; rec++) {
             const readRecord = `00B200${(sfi << 3)
               .toString(16)
@@ -246,23 +221,22 @@ class CardUtils {
             );
             const recordResponseHex = bytesToHex(recordResponse);
             if (!recordResponseHex.endsWith('9000')) {
-              continue; // Skip invalid records
+              continue;
             }
 
-            // Parse record TLV
             const recordTLV = parseTLV(recordResponseHex);
             if (recordTLV['5A']) {
-              cardNumber = recordTLV['5A'].replace(/F+$/, ''); // Remove padding
+              cardNumber = recordTLV['5A'].replace(/F+$/, '');
             }
             if (recordTLV['5F24']) {
-              const expiry = recordTLV['5F24']; // YYMMDD
-              expiryDate = `${expiry.substr(2, 2)}/${expiry.substr(0, 2)}`; // MM/YY
+              const expiry = recordTLV['5F24'];
+              expiryDate = `${expiry.substr(2, 2)}/${expiry.substr(0, 2)}`;
             }
           }
         }
       }
 
-      // Fallback: Try Get Data for PAN and expiry if not found in records
+      // Fallback: Get Data
       if (!cardNumber) {
         const getPAN = '80CA5A00';
         const panResponse = await NfcManager.isoDepHandler.transceive(
@@ -291,7 +265,7 @@ class CardUtils {
         }
       }
 
-      // Validate extracted data
+      // Validate data
       if (!cardNumber || !this.validateCardNumber(cardNumber)) {
         throw new Error('Invalid card number.');
       }
@@ -311,8 +285,7 @@ class CardUtils {
       console.error('NFC read error:', error);
       throw new Error(`Failed to read card: ${error.message}`);
     } finally {
-      // Clean up NFC session
-      await NfcManager.cancelTechnologyRequest().catch(() => {});
+      await cleanupNfc();
     }
   }
 }
