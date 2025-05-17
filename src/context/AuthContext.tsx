@@ -18,8 +18,10 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  error: string | null; // Add error property
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  clearError: () => void; // Add clearError function
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,9 +31,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null); // Add error state
 
   useEffect(() => {
-    // Check for stored auth token on app start
     const loadUser = async () => {
       try {
         const storedUser = await AsyncStorage.getItem('user');
@@ -43,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       } catch (error) {
         console.error('Failed to load auth state:', error);
+        setError('Failed to load authentication state');
       } finally {
         setIsLoading(false);
       }
@@ -57,27 +60,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<boolean> => {
     try {
       setIsLoading(true);
+      setError(null); // Clear any previous errors
 
-      // In a real app, this would be an API call to your backend
-      // For demo purposes, we'll simulate a successful login
       const response = await api.post('/auth/login', { username, password });
 
       if (response.success) {
         const { user, token } = response.data;
 
-        // Store auth data
         await AsyncStorage.setItem('user', JSON.stringify(user));
         await AsyncStorage.setItem('token', token);
 
-        // Update context
         setUser(user);
         api.setAuthToken(token);
 
         return true;
+      } else {
+        setError('Invalid username or password'); // Set error on failed login
+        return false;
       }
-      return false;
     } catch (error) {
       console.error('Login failed:', error);
+      setError('An error occurred during login'); // Set error on exception
       return false;
     } finally {
       setIsLoading(false);
@@ -87,19 +90,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const logout = async (): Promise<void> => {
     try {
       setIsLoading(true);
+      setError(null); // Clear any errors
 
-      // Clear stored auth data
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('token');
 
-      // Update context
       setUser(null);
       api.clearAuthToken();
     } catch (error) {
       console.error('Logout failed:', error);
+      setError('An error occurred during logout');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const clearError = () => {
+    setError(null); // Clear the error state
   };
 
   return (
@@ -108,8 +115,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         user,
         isLoading,
         isAuthenticated: !!user,
+        error, // Include error in context
         login,
-        logout
+        logout,
+        clearError // Include clearError in context
       }}
     >
       {children}
