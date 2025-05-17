@@ -4,12 +4,22 @@
     "slug": "expo-universal-pos",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/pay.png",
     "userInterfaceStyle": "light",
-    "plugins": ["react-native-nfc-manager"],
+    "plugins": [
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "Custom permission message",
+          "selectIdentifiers": ["A0000002471001"],
+          "systemCodes": ["8008"],
+          "includeNdefEntitlement": false
+        }
+      ]
+    ],
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/pay.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },

@@ -27,26 +27,24 @@ const queryClient = new QueryClient({
 
 export default function App() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <SafeAreaProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <CartProvider>
-                <PaymentProvider>
-                  <SettingsProvider>
-                    <NavigationContainer>
-                      <StatusBar style='auto' />
-                      <RootNavigation />
-                    </NavigationContainer>
-                  </SettingsProvider>
-                </PaymentProvider>
-              </CartProvider>
-            </AuthProvider>
-          </ThemeProvider>
-        </SafeAreaProvider>
-      </QueryClientProvider>
-    </GestureHandlerRootView>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <CartProvider>
+              <PaymentProvider>
+                <SettingsProvider>
+                  <NavigationContainer>
+                    <StatusBar style='auto' />
+                    <RootNavigation />
+                  </NavigationContainer>
+                </SettingsProvider>
+              </PaymentProvider>
+            </CartProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }
 

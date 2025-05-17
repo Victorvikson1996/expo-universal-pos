@@ -2,6 +2,7 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+
 import { RootStackParamList } from '@/Navigation/types';
 import { MainTabs } from '@/Navigation/TabNavigation';
 import { LoginScreen } from '@/screens/LoginScreen';
